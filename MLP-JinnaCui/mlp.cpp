@@ -1,286 +1,203 @@
-//#include <QCoreApplication>
+#include "mlp.h"
 
-//int main(int argc, char *argv[])
-//{
-//    QCoreApplication a(argc, argv);
 
-//    return a.exec();
-//}
-#include <iostream> //头文件
-#include <math.h>
-#include <stdlib.h>
-#include <string>
-#include <fstream>
-#define PI 3.14159265
-#define e 2.718281828
-#define n 2 //定义两层隐含层
-#define databasenumber 300 //定义训练数据为300
-#define learning_rate 0.01
-#define n_in 30
-#define n_fhidenlayer 30
-#define n_shidenlayer 10
-#define n_out 2 //n_in是输入数据的维数,n_fhidenlayer是第一个隐含层的节点数，n_shidenlayer是第二个隐含层节点数，n_out是输出层的节点数；
-using namespace std; //使用std命名空间
-double input[n];
-double matrix_1[n_in][n_fhidenlayer];
-double matrix_2[n_fhidenlayer][n_shidenlayer];
-double matrix_3[n_shidenlayer][n_out];//定义三个权重矩阵
-double layer1_node_sum;
-double layer2_node_sum;
-double output_node_sum;
-double bias_fhidenlayer[n_fhidenlayer];
-double bias_shidenlayer[n_shidenlayer];
-double bias_out[n_out]; //定义第一、二隐含层,输出层节点数值和偏置项；
-double layer1_node[n_fhidenlayer];
-double layer1_node_output[n_fhidenlayer];
-double layer2_node[n_shidenlayer];
-double layer2_node_output[n_shidenlayer];
-double output_node_output[n_out]; //定义长度为第一、二隐含层和输出层节点数的数组；
-double sigmoid(double x)
-{
-    double sigmoid;
-    sigmoid = 1.0/(1.0+exp(-x));//define sigmoid function as activation function.
-    return sigmoid;
+//定义高斯随机数(仿写俞老师deep.cpp中的高斯随机数函数)
+float Parameter::sample_from_gaussian(float miu,float sigma){
+    static float V1,V2,S;
+    static int phase = 0;
+    float X;
+    float gaussian_output;
+    if (phase == 0){
+        do{
+            float U1 = (float)rand() / RAND_MAX;
+            float U2 = (float)rand() / RAND_MAX;
+            V1 = 2 * U1 - 1;
+            V2 = 2 * U2 - 1;
+            S = V1 * V1 + V2 * V2;
+        }while (S >= 1 || S == 0);
+        X = V1 * sqrt(-2 * log(S) / S);
+    }
+    else
+        X = V2 * sqrt(-2 * log(S) / S);
+    phase = 1 - phase;
+    gaussian_output=X * sigma + miu;
+    return gaussian_output;
 }
-double label;//定义标签
-double feedforwardnet();
-double feedback();
-double init_error(double m);
 
-/***************************************************
+//定义激活函数sigmoid
+float Functions::sigmoid(float x){
+    float Y;
+    Y=1/(1+exp(-x));
+    return Y;
+}
+
+//定义sigmoid函数的导函数
+float Functions::gradsigmoid(float x){
+    float G;
+    G=x*(1-x);
+    return G;
+}
+//定义前馈网络
+float feedforward(int k){
+    Node_value nva;
+    Parameter par;
+    Inputlayer inp;
+    Functions fun;
+    float a,b,c,sum;
+    float loss;
+    //通过循环求解每层节点的值
+    for (int i=0;i<first_hiden_layer_node_number;i++) {//第一隐藏层节点输出值；
+        for (int j=0; j<input_layer_node_number;j++) {
+            a=par.ih_weight_array[j][i]*inp.input_data[k][j]+par.first_hiden_layer_bias_array[i];
+            nva.first_hiden_layer_node_value[i]=fun.sigmoid(a);
+        }
+    }
+    ////////////////////////////////testing
+        ofstream output_data;
+        output_data.open("output_data.txt");
+        output_data<<nva.first_hiden_layer_node_value[first_hiden_layer_node_number]<<endl;
+        output_data.close();
+    /////////////////////////////////////////////////
+    for (int i=0;i<second_hiden_layer_node_number;i++) {//第二隐藏层节点输出值；
+        for (int j=0; j<first_hiden_layer_node_number;j++) {
+            b=par.hh_weight_array[j][i]*nva.first_hiden_layer_node_value[j]+par.second_hiden_layer_bias_array[i];
+        }
+        nva.second_hiden_layer_node_value[i]=fun.sigmoid(b);
+    }
+    for (int i=0;i<output_layer_node_number;i++) {//输出层节点累加值；
+        for (int j=0; j<second_hiden_layer_node_number;j++) {
+            c=par.ho_weight_array[j][i]*nva.second_hiden_layer_node_value[j]+par.output_layer_bias_array[i];
+        }
+        sum+=exp(c);
+    }
+    for (int i=0;i<output_layer_node_number;i++) {//输出层节点经softmax函数后的输出值；
+        for (int j=0; j<second_hiden_layer_node_number;j++) {
+            c=par.ho_weight_array[j][i]*nva.second_hiden_layer_node_value[j]+par.output_layer_bias_array[i];
+        }
+        nva.output_layer_node_value[i]=exp(c)/sum;
+    }
+    return 0;
+}
+
+//定义反馈网络
+float feedback(int k){
+    Gradparameter gpr;
+    Node_value nva;
+    Inputlayer inp;
+    Parameter par;
+    Functions fun;
+    //通过循环求解梯度并对权重和偏置进行优化**************
+    //求解第二隐藏层到输出层权重梯度并优化权重；
+    for (int i=0;i<second_hiden_layer_node_number;i++) {
+        for (int j=0;j<output_layer_node_number;j++) {
+            gpr.ho_weight_grad_array[i][j]=(nva.output_layer_node_value[j]-inp.label[j])*nva.second_hiden_layer_node_value[i];
+            par.ho_weight_array[i][j]-=learning_rate*gpr.ho_weight_grad_array[i][j];
+        }
+    }
+    //求解输出层的偏置梯度并对偏置优化偏置；
+    for (int i=0;i<output_layer_node_number;i++) {
+        gpr.output_layer_bias_grad_array[i]=nva.output_layer_node_value[i]-inp.label[i];
+        par.output_layer_bias_array[i]-=learning_rate*gpr.output_layer_bias_grad_array[i];
+    }
+    //通过循环累加来定义输出层误差函数向第二隐藏层的传递；
+    for (int i=0;i<second_hiden_layer_node_number;i++) {
+        for (int j=0;j<output_layer_node_number;j++) {
+            nva.second_hiden_layer_node_grad_value[i]+=(nva.output_layer_node_value[j]-inp.label[j])*par.ho_weight_array[i][j];
+        }
+    }
+    //求第一隐藏层到第二隐藏层权重梯度并优化；
+    for (int i=0;i<first_hiden_layer_node_number;i++) {
+        for (int j=0;j<second_hiden_layer_node_number;j++) {
+            gpr.hh_weight_grad_array[i][j]=nva.second_hiden_layer_node_grad_value[j]*fun.gradsigmoid(nva.second_hiden_layer_node_value[j])*nva.first_hiden_layer_node_value[i];
+            par.hh_weight_array[i][j]-=learning_rate*gpr.hh_weight_grad_array[i][j];
+        }
+    }
+    //求第二隐藏层的梯度偏置梯度并优化；
+    for (int i=0;i<second_hiden_layer_node_number;i++) {
+        gpr.second_hiden_layer_bias_grad_array[i]=nva.second_hiden_layer_node_grad_value[i]*fun.gradsigmoid(nva.second_hiden_layer_node_value[i]);
+        par.second_hiden_layer_bias_array[i]-=learning_rate*gpr.second_hiden_layer_bias_grad_array[i];
+    }
+    //通过循环累加来定义第二隐藏层误差函数向第一隐藏层的传递；
+    for (int i=0;i<first_hiden_layer_node_number;i++) {
+        for (int j=0;j<second_hiden_layer_node_number;j++) {
+            nva.first_hiden_layer_node_grad_value[i]+=nva.second_hiden_layer_node_grad_value[j]*fun.gradsigmoid(nva.second_hiden_layer_node_value[j])*par.hh_weight_array[i][j];
+        }
+    }
+    //求输入层到第一隐藏层的权重梯度并优化；
+    for (int i=0;i<input_layer_node_number;i++) {
+        for (int j=0;j<first_hiden_layer_node_number;j++) {
+            gpr.ih_weight_grad_array[i][j]=nva.first_hiden_layer_node_grad_value[j]*fun.gradsigmoid(nva.first_hiden_layer_node_value[j])*inp.input_data[k][i];
+            par.ih_weight_array[i][j]-=learning_rate*gpr.ih_weight_grad_array[i][j];
+        }
+    }
+    //求第一隐藏层偏置梯度并优化；
+    for (int i=0;i<first_hiden_layer_node_number;i++) {
+        gpr.first_hiden_layer_bias_grad_array[i]=nva.first_hiden_layer_node_grad_value[i]*fun.gradsigmoid(nva.first_hiden_layer_node_value[i]);
+        par.first_hiden_layer_bias_array[i]-=learning_rate*gpr.first_hiden_layer_bias_grad_array[i];
+    }
+  
+    return 0;
+}
+
+
+/******************************************
  main function
- ***************************************************/
+ ******************************************/
 int main()
 {
-for(int i=0;i<3000;i++)
-{
-    feedforwardnet();
-    feedback();
-    double m;
-    double error=init_error(m);
-    cout<<"matrix1="<<matrix_1[n_in][n_fhidenlayer]<<endl;
-    cout<<"matrix2="<<matrix_2[n_fhidenlayer][n_shidenlayer]<<endl;
-    cout<<"matrix3="<<matrix_3[n_shidenlayer][n_out]<<endl;
-    cout<<"bias1="<<bias_fhidenlayer[n_fhidenlayer]<<endl;
-    cout<<"bias2="<<bias_shidenlayer[n_shidenlayer]<<endl;
-    cout<<"bias_out="<<bias_out[n_out]<<endl;
-}
-    return 0;
-}
-//获取随机权重和偏置
-double randnum(){
-        double x=(double) rand()/RAND_MAX;
-        return x;
-}
-
-//通过循环得到
-double weightmatrix1(){
-    for (int i=0;i<n_in;i++) {
-        for (int j=0;j<n_fhidenlayer;j++) {
-            matrix_1[i][j]=randnum();
-        }
-    }
-}
-double weightmatrix2(){
-    for (int i=0;i<n_fhidenlayer;i++) {
-        for (int j=0;j<n_shidenlayer;j++) {
-         matrix_2[i][j]=randnum();
-        }
-    }
-}
-double weightmatrix3(){
-    for (int i=0;i<n_shidenlayer;i++) {
-            for (int j=0;j<n_out;j++) {
-                 matrix_3[i][j]=randnum();
-                }
-            }
-}
-double bias_fhidenlayer(){
-    for (int i=0;i<n_fhidenlayer;i++){
-          bias_fhidenlayer[i]=randnum();
-    }
-    return 0;
-}
-
-double bias_sechidenlayer(){
-    for (int i=0;i<n_shidenlayer;i++){
-        bias_shidenlayer[i]=randnum();
-    }
-}
-
-double bias_outlayer(){
-    for (int i=0;i<n_out;i++){
-        bias_out[i]=randnum();
-    }
-}
-
-double feedforwardnet(){
-    weightmatrix1();
-    weightmatrix2();
-    weightmatrix3();
-    bias_fhidenlayer();
-    bias_sechidenlayer();
-    bias_outlayer();
-    double input[n_in];
-    ifstream file;
-    file.open("data.txt");
-    for(int i=0;i<n_in;i++)
+    Inputlayer inp;
+    Parameter par;
+    
+    //读入数据到input数组；
+    ifstream data_file;
+    data_file.open("data.txt");
+    for(int i=0;i<data_number;i++)
     {
-        file>>input[i];
-    }
-    file.close();
-    //求解第一层隐含层节点的值
-    for(int i=0;i<n_fhidenlayer;i++){
-        for(int j=0;j<n_in;j++){
-            layer1_node_sum+=matrix_1[i][j]*input[i]+bias_fhidenlayer;
-            layer1_node[i]=layer1_node_sum;
-            layer1_node_output[i]=sigmoid(layer1_node[i]);
-        }
-    }
-  //求解第二层隐含层节点的值
-    for(int i=0;i<n_shidenlayer;i++){
-        for(int j=0;j<n_fhidenlayer;j++){
-            layer2_node_sum+=matrix_2[i][j]*layer1_node_output[j];
-
-        }
-        layer2_node_sum+=bias_shidenlayer[i];
-        layer2_node[i]=layer2_node_sum;
-        layer2_node_output[i]=sigmoid(layer2_node[i]);
-    }
- //求解输出层节点的值
-    for(int i=0;i<n_out;i++){
-        for(int j=0;j<n_shidenlayer;j++){
-            output_node_sum+=matrix_3[i][j]*layer2_node_output[j];
-            output_node_sum+=bias_out[i];
-        }
-        output_node[i]=layer3_node_sum;
-        output_node_output[i]=sigmoid(output_node[i]);
-     }
-}
-//定义筛选输出层的最大值函数
-double out_max(){
-    double out_max=output_node_output[0];
-    for (int i=0;i<n_out;i++){
-        if(out_max<output_node_output[i]){
-            out_max=output_node_output[i];
-        }
-    }
-    return out_max;
-}
-//定义softmax分母（累加值）函数
-double softmax_denominator(){
-    double softmax_deno=0.0;
-    double out_ma;
-    out_ma=out_max();
-    for(int i=0;i<n_out;i++){
-        softmax_deno+=exp(output_node_output[i]-out_ma);
-    }
-    return softmax_deno;
-}
-//定义softmax函数
-double softmax(){
-   double softmax_deno=softmax_denominator();
-   double output_p[n_out];
-    for (int i=0;i<n_out;i++){
-       output_p[i]=exp(output_node_output[i]-out_max)/softmax_deno；
-    }
-}
-//define cost function
-double init_error(double x){
-        double error=-log(x);
-        return error;
-}
-//定义errorGrad函数
-double errorGrad(){
-    double errorGrad[n_out];
-    for (int i=0;i<n_out;i++){
-   double errorGrad[i] = output_p[i]-label；
-    }
-}
-double feedback(){
-        double Grad_who[n_shidenlayer][n_out],Grad_whh[n_fhidenlayer][n_shidenlayer],Grad_wih[n_in][n_fhidenlayer];
-//优化第二隐含层到输出层的权重
-        for (int i=0;i<n_shidenlayer;i++) //更新最后一层隐藏层到输出层的权重
+        for (int j=0;j<data_dimension;j++)
         {
-          for(int j=0;j<n_out;j++)
-          {
-              Grad_who[i][j]=errorGrad[j]*layer2_node_output[i];//定义第二隐藏层到输出层的梯度
-               matrix_3[i][j]-=learning_rate*Grad_who[i][j];//定义更新的权重值：原权重－学习率乘梯度
-          }
-        }
-    //更新优化第一层隐藏层权重时的第二隐藏层各节点的偏导值
-    double Grad_sechidenlayer[n_shidenlayer];//定义第二隐藏层的梯度函数
-    for(int i=0;i<n_shidenlayer;i++)
-    {
-        for(int j=0;j<n_out;j++)
-        {
-            Grad_sechidenlayer[i]+=errorGrad[j]*matrix_3[i][j];
+            data_file>>inp.input_data[i][j];
         }
     }
-    //优化第一层隐含层第二隐含层的权重
-    for(int i=0;i<n_fhidenlayer;i++)｛
-        for(int j=0;j<n_shidenlayer;j++){
-            Grad_whh[i][j]=Grad_sechidenlayer[j]*layer2_node_output[j]*(1-layer2_node_output[j])*layer1_node_output[i];//定义第一隐藏层到第二隐藏层的梯度
-            matrix_2[i][j]-=learning_rate*Grad_whh[i][j];
+    data_file.close();
+    
+    //读入label到数组
+    ifstream label_file;
+    label_file.open("datalabel.txt");
+    for (int i=0 ;i<data_number;i++) {
+        label_file>>inp.label[i];
+    }
+    label_file.close();
+    
+    //给权重、偏置数组赋任意值
+    for (int i=0;i<input_layer_node_number;i++) {//给输入层到第一隐藏层权重数组赋值；
+        for (int j=0;j<first_hiden_layer_node_number; j++) {
+            par.ih_weight_array[i][j]=par.sample_from_gaussian(0,0.01);
         }
     }
-    //更新在优化输入层权重时的第一隐藏层各节点的偏导值
-
-    double Grad_firhidenlayer[n_fhidenlayer];
-    double Grad_sechidenlayer[n_shidenlaher];
-    for(int i=0;i<n_fhidenlayer;i++)
-    {
-        for (int j=0;j<n_shidenlayer;j++)
-        {
-            Grad_sechidenlayer[i]+=Grad_firhidenlayer[j]*matrix_2[i][j];//调用第二层隐含层的偏导值求第一层隐含层偏导的累加结果
+    for (int i=0;i<first_hiden_layer_node_number;i++) {//给第一隐藏层到第二隐藏层权重数组赋值；
+        for (int j=0;j<second_hiden_layer_node_number; j++) {
+            par.hh_weight_array[i][j]=par.sample_from_gaussian(0,0.01);
         }
     }
-    //优化从输入层到第一层隐含层权重
-    for (int i=0;i<n_in;i++)
-    {
-        for(int j=0;j<n_fhidenlayer;j++)
-        {
-            Grad_wih[i][j]=Grad_firhidenlayer[j]*layer1_node_output[j]*(1-layer1_node_output[j]*layer1_node_output[i])*input[n_in];
-            matrix_1[i][j]-=learning_rate*Grad_wih[i][j];
-        }
-    }//权重优化结束！
-    double Grad_b_out[n_out],Grad_b_hiden2[n_shidenlayer],Grad_b_hiden1[n_fhidenlayer];
-    //更新输出层偏置
-    for (int i=0;i<n_out;i++)
-    {
-        Grad_b_out[i]=errorGrad[i]*output_node_output[i]*(1-[i]);
-        bias_out[i]-=Grad_b_out[i];
-    }
-    //更新第二层隐藏层的偏置
-    double layer2_node_grad[n_shidenlayer];
-    for (int i=0;i<n_shidenlayer;i++)
-    {
-        for (int j=0;j<n_out;j++)
-        {
-            layer2_node_grad[i]+=matrix_3[i][j]*errorGrad[j]*output_node_output[j]*(1-output_node_output[j]);
+    for (int i=0;i<second_hiden_layer_node_number;i++) {//给第二隐藏层到输出层权重数组赋值；
+        for (int j=0;j<output_layer_node_number; j++) {
+            par.ho_weight_array[i][j]=par.sample_from_gaussian(0,0.01);
         }
     }
-    for (int i=0;i<n_shidenlayer;i++)
-    {
-            Grad_b_hiden2[i]=layer2_node_grad[i]*layer2_node_output[i]*(1-layer2_node_output[i]);
-        bias_shidenlayer[i]-=learning_rate*Grad_b_hiden2[i];
-
+    for (int i=0;i<first_hiden_layer_node_number; i++) {
+        par.first_hiden_layer_bias_array[i]=par.sample_from_gaussian(0,0.01);
     }
-    //更新第一层隐藏层的偏置
-    double layer1_node_grad[n_fhidenlayer],layer1_2_node_grad[n_shidenlayer];
-    for (int i=0;i<n_fhidenlayer;i++)
-    {
-        for (int j=0;j<n_shidenlayer;j++)
-        {
-            for (int k=0;k<n_out;k++)
-            {
-                layer1_2_node_grad[j]+=matrix_3[j][k]*errorGrad[k]*output_node_output[k]*(1-output_node_output[k]);
-            }
-            layer1_node_grad[i]+=matrix_2[i][j]*layer1_2_node_grad[j]*layer2_node_output[j]*(1-layer2_node_output[j])；
-        }
-        Grad_b_hiden1[i]=layer1_node_grad[i]*layer1_node_output[i]*(1-layer1_node_output[i]);
-        bias_fhidenlayer[i]-=learning_rate*Grad_b_hiden1[i];
+    for (int i=0;i<first_hiden_layer_node_number; i++) {
+        par.first_hiden_layer_bias_array[i]=par.sample_from_gaussian(0,0.01);
     }
-    //偏置更新完毕
+    for (int i=0;i<first_hiden_layer_node_number; i++) {
+        par.first_hiden_layer_bias_array[i]=par.sample_from_gaussian(0,0.01);
+    }
+    int m;
+    for (int i=0;i<300;i++) {
+        feedforward(i);
+        feedback(i);
+    }
+  return 0;
 }
 
