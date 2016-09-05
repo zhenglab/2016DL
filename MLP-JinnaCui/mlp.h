@@ -20,6 +20,7 @@ using namespace std;
 #define first_hiden_layer_node_number 20
 #define second_hiden_layer_node_number 10
 #define output_layer_node_number 2
+#define test_data_number 200
 #define learning_rate 0.01
 
 //定义输入层的变量^^^^^^^^
@@ -27,6 +28,8 @@ class Inputlayer{
 public:
     float input_data[data_number][data_dimension];//定义输入数据二维数组；
     float label[data_number];
+    float input_test_data[test_data_number][data_dimension];
+    
 };
 
 //定义每层节点数值和隐藏层节点梯度累加值参数^^^^^^^^^^
@@ -49,6 +52,8 @@ public:
     float second_hiden_layer_bias_array[second_hiden_layer_node_number];//定义第二隐藏层的一维偏置数组；
     float output_layer_bias_array[output_layer_node_number];//定义输出层的一维偏置数组；
     float sample_from_gaussian(float miu,float sigma);//定义高斯分布取（0～1）的随机值；
+    
+    
 };
 
 //定义权重和偏置的优化矩阵

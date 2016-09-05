@@ -1,6 +1,5 @@
 #include "mlp.h"
 
-
 //定义高斯随机数(仿写俞老师deep.cpp中的高斯随机数函数)
 float Parameter::sample_from_gaussian(float miu,float sigma){
     static float V1,V2,S;
@@ -37,55 +36,51 @@ float Functions::gradsigmoid(float x){
     G=x*(1-x);
     return G;
 }
-//定义前馈网络
-float feedforward(int k){
+//定义前馈网络^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+float feedforward(Inputlayer &inp,Parameter &par){
     Node_value nva;
-    Parameter par;
-    Inputlayer inp;
     Functions fun;
     float a,b,c,sum;
     float loss;
+    a = 0;
+    
     //通过循环求解每层节点的值
     for (int i=0;i<first_hiden_layer_node_number;i++) {//第一隐藏层节点输出值；
         for (int j=0; j<input_layer_node_number;j++) {
-            a=par.ih_weight_array[j][i]*inp.input_data[k][j]+par.first_hiden_layer_bias_array[i];
-            nva.first_hiden_layer_node_value[i]=fun.sigmoid(a);
+            a+=par.ih_weight_array[j][i]*inp.input_data[0][j];
         }
+        nva.first_hiden_layer_node_value[i]=fun.sigmoid(a+par.first_hiden_layer_bias_array[i]);
+                    cout<<"fhlayer_node_value"<<nva.first_hiden_layer_node_grad_value[i]<<endl;
     }
-    ////////////////////////////////testing
-        ofstream output_data;
-        output_data.open("output_data.txt");
-        output_data<<nva.first_hiden_layer_node_value[first_hiden_layer_node_number]<<endl;
-        output_data.close();
-    /////////////////////////////////////////////////
+    for (int i=0;i<first_hiden_layer_node_number;i++) {//第一隐藏层节点输出值；
+            }
     for (int i=0;i<second_hiden_layer_node_number;i++) {//第二隐藏层节点输出值；
         for (int j=0; j<first_hiden_layer_node_number;j++) {
-            b=par.hh_weight_array[j][i]*nva.first_hiden_layer_node_value[j]+par.second_hiden_layer_bias_array[i];
+            b+=par.hh_weight_array[j][i]*nva.first_hiden_layer_node_value[j];
         }
-        nva.second_hiden_layer_node_value[i]=fun.sigmoid(b);
+        nva.second_hiden_layer_node_value[i]=fun.sigmoid(b+par.second_hiden_layer_bias_array[i]);
     }
     for (int i=0;i<output_layer_node_number;i++) {//输出层节点累加值；
         for (int j=0; j<second_hiden_layer_node_number;j++) {
-            c=par.ho_weight_array[j][i]*nva.second_hiden_layer_node_value[j]+par.output_layer_bias_array[i];
+            c+=par.ho_weight_array[j][i]*nva.second_hiden_layer_node_value[j];
         }
-        sum+=exp(c);
+        sum+=exp(c+par.output_layer_bias_array[i]);
     }
     for (int i=0;i<output_layer_node_number;i++) {//输出层节点经softmax函数后的输出值；
         for (int j=0; j<second_hiden_layer_node_number;j++) {
-            c=par.ho_weight_array[j][i]*nva.second_hiden_layer_node_value[j]+par.output_layer_bias_array[i];
+            c+=par.ho_weight_array[j][i]*nva.second_hiden_layer_node_value[j];
         }
-        nva.output_layer_node_value[i]=exp(c)/sum;
+        nva.output_layer_node_value[i]=exp(c+par.output_layer_bias_array[i])/sum;
     }
     return 0;
 }
 
-//定义反馈网络
-float feedback(int k){
+//定义反馈网络^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+float feedback(Node_value &nva,Parameter &par){
     Gradparameter gpr;
-    Node_value nva;
     Inputlayer inp;
-    Parameter par;
     Functions fun;
+    
     //通过循环求解梯度并对权重和偏置进行优化**************
     //求解第二隐藏层到输出层权重梯度并优化权重；
     for (int i=0;i<second_hiden_layer_node_number;i++) {
@@ -126,7 +121,7 @@ float feedback(int k){
     //求输入层到第一隐藏层的权重梯度并优化；
     for (int i=0;i<input_layer_node_number;i++) {
         for (int j=0;j<first_hiden_layer_node_number;j++) {
-            gpr.ih_weight_grad_array[i][j]=nva.first_hiden_layer_node_grad_value[j]*fun.gradsigmoid(nva.first_hiden_layer_node_value[j])*inp.input_data[k][i];
+            gpr.ih_weight_grad_array[i][j]=nva.first_hiden_layer_node_grad_value[j]*fun.gradsigmoid(nva.first_hiden_layer_node_value[j])*inp.input_data[0][i];
             par.ih_weight_array[i][j]-=learning_rate*gpr.ih_weight_grad_array[i][j];
         }
     }
@@ -140,14 +135,14 @@ float feedback(int k){
 }
 
 
-/******************************************
- main function
- ******************************************/
+/************************************************************************************
+                                  main function
+ ************************************************************************************/
 int main()
 {
     Inputlayer inp;
     Parameter par;
-    
+     Node_value nva;
     //读入数据到input数组；
     ifstream data_file;
     data_file.open("data.txt");
@@ -193,11 +188,8 @@ int main()
     for (int i=0;i<first_hiden_layer_node_number; i++) {
         par.first_hiden_layer_bias_array[i]=par.sample_from_gaussian(0,0.01);
     }
-    int m;
-    for (int i=0;i<300;i++) {
-        feedforward(i);
-        feedback(i);
-    }
+    feedforward(inp,par);
+    feedback(nva,par);
   return 0;
 }
 
