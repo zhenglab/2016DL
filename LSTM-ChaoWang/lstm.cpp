@@ -142,16 +142,17 @@ int main()
         int steps=300;
     */
 
-    int H_ = 200; // hidden units
+    int H_ = 100; // hidden units
     int I_ = 6; // input units
     int T_ = 300; // steps
     int N_ = 64; //samples
     int K_ = 8;   // output units
-
-    float lr = 0.00064;
+    float L2norm = 0.00002;
+    float lr = 0.0016;
     int batch_count =0;
-    double batch_size = 64.0;
-    float best_accury = 0.0;  //save the best modle
+    float batch_size = 16.0;
+    //float best_accury = 0.0;  //save the best modle
+    float momentum = 0.9;
 
     float weight_i[H_][I_];   //num of cell block
     float weight_f[H_][I_];
@@ -241,6 +242,26 @@ int main()
     float dzdh[K_][H_];
     float dzdb[K_];
 
+     float pre_didc[H_];
+    float pre_dfdc[H_];
+    float pre_dodc[H_];
+    float pre_didx[H_][I_];
+    float pre_dfdx[H_][I_];
+    float pre_dgdx[H_][I_];
+    float pre_dodx[H_][I_];
+
+    float pre_didh[H_][H_];
+    float pre_dfdh[H_][H_];
+    float pre_dgdh[H_][H_];
+    float pre_dodh[H_][H_];
+
+    float pre_didb[H_];
+    float pre_dfdb[H_];
+    float pre_dgdb[H_];
+    float pre_dodb[H_];
+
+    float pre_dzdh[K_][H_];
+    float pre_dzdb[K_];
 
 
     double error[T_][H_];
@@ -278,6 +299,7 @@ int main()
         if((i+1)%8 == 0) label++;
         //cout << id[i]  << endl;
     }
+
 
     ifstream input_train("nn_train.txt");//打开输入文件 载入训练数据
     ifstream input_test("nn_test.txt"); //载入测试数据
@@ -341,6 +363,16 @@ int main()
         dgdb[d] = 0;
         dodb[d] = 0;
 
+
+        pre_didc[d] = 0;
+        pre_dfdc[d] = 0;
+        pre_dodc[d] = 0;
+
+        pre_didb[d] = 0;
+        pre_dfdb[d] = 0;
+        pre_dgdb[d] = 0;
+        pre_dodb[d] = 0;
+
         for(int i = 0; i < I_; ++i)
         {
             weight_i[d][i] = gaussian(0, 0.01);
@@ -352,6 +384,12 @@ int main()
             dfdx[d][i] = 0;
             dgdx[d][i] = 0;
             dodx[d][i] = 0;
+
+
+            pre_didx[d][i] = 0;
+            pre_dfdx[d][i] = 0;
+            pre_dgdx[d][i] = 0;
+            pre_dodx[d][i] = 0;
 
         }
 
@@ -367,12 +405,19 @@ int main()
             dgdh[d][j] = 0;
             dodh[d][j] = 0;
 
+            pre_didh[d][j] = 0;
+            pre_dfdh[d][j] = 0;
+            pre_dgdh[d][j] = 0;
+            pre_dodh[d][j] = 0;
+
+
         }
         //previous state
         for(int k = 0; k < K_; ++k)
         {
             h_z_weight[k][d] = gaussian(0, 0.01);
             dzdh[k][d] = 0;
+            pre_dzdh[k][d] = 0;
 
         }
     }
@@ -390,6 +435,7 @@ int main()
     {
 	bias_z[k] = 0;
         dzdb[k] = 0;
+        pre_dzdb[k] = 0;
     }
 // init z_o[T_][K_] 初始化很重要
 
@@ -400,7 +446,6 @@ int main()
         z_o[t][k] = 0;
 	z_o_test[t][k] = 0;
         gradient_O_h[t][k] = 0;
-
 
     }
 	for(int d = 0; d < H_; ++d)
@@ -432,17 +477,20 @@ int main()
    }
 
 
-    int max_epoch = 3000;
+    int max_epoch = 5000;
 
     for(int epoch = 0; epoch < max_epoch; ++epoch)
     {
 
         cout << epoch << " epochs" << endl;
         //elapsed_time = omp_get_wtime();
+
+	perfect_shuffle(id, 31);
         perfect_shuffle(id, 31);
-        perfect_shuffle(id, 31);
+	//perfect_shuffle(id, 31);
         perfect_shuffle(y, 31);
         perfect_shuffle(y, 31);
+	//perfect_shuffle(y, 31);
 
         for(int n = 0; n < N_; ++n)
         {
@@ -462,10 +510,10 @@ int main()
                     for(int i = 0; i < I_; ++i)
                     {
 
-                        net_i[t][d] = weight_i[d][i] * x[id[n] * T_ + t][i] ;
-                        net_f[t][d] = weight_f[d][i] * x[id[n] * T_ + t][i] ;
-                        net_g[t][d] = weight_g[d][i] * x[id[n] * T_ + t][i] ;
-                        net_o[t][d] = weight_o[d][i] * x[id[n] * T_ + t][i] ;
+                        net_i[t][d] += weight_i[d][i] * x[id[n] * T_ + t][i] ;
+                        net_f[t][d] += weight_f[d][i] * x[id[n] * T_ + t][i] ;
+                        net_g[t][d] += weight_g[d][i] * x[id[n] * T_ + t][i] ;
+                        net_o[t][d] += weight_o[d][i] * x[id[n] * T_ + t][i] ;
 
                         // test this block of code, x_input and bias are ok, weight_update is the problem
                     }
@@ -531,12 +579,12 @@ int main()
                     {
                         z_o[t][f] += h_z_weight[f][h] * h_t[t][h];
 
-			//if(f == 0) cout << " h_z_weight: " << h_z_weight[f][h] << " ";
+                        //cout << " h_z_weight: " << h_z_weight[f][h] << " ";
                         //if(f == 2) cout << " h_z_weight: " << h_z_weight[f][h] << " ";
                     }
                     z_[f] = z_o[t][f] + bias_z[f];// output value of every step
 		    //cout << f << " value of ip before softmax: " << *ip << endl; //测试得softmax的输入存在问题，output unit 0的输入值很大
-                    //cout << f << " bias_z: " << bias_z[f] << " z_o " << z_[f] << std::endl; //那么问题是 bias_z的值过大 导致输出神经元0的值过大
+                    //cout << f << " output units: " <<" z_o = " << z_[f] << endl; //那么问题是 bias_z的值过大 导致输出神经元0的值过大
 		    //ip++;                                                                //同时注意到，其他hidden to outputs的bias为0；
                     //at time step computesoftmax
 
@@ -609,7 +657,6 @@ int main()
                     }
 
 
-
                                                                // cout << k << " output units " << " gradient_O_h: " << gradient_O_h[t][k] << endl;
                 }
 
@@ -647,18 +694,18 @@ int main()
                             dgdh[d][hi] += h_g_gate_diff[t][d];
                             dodh[d][hi] += h_g_gate_diff[t][d];
 			}
-                        h_gate_diff[t][d] = error[t][d] + h_i_gate_diff[t][d] + h_f_gate_diff[t][d] + h_g_gate_diff[t][d] + h_o_gate_diff[t][d];
+			h_gate_diff[t][d] = error[t][d] + h_i_gate_diff[t][d] + h_f_gate_diff[t][d] + h_g_gate_diff[t][d] + h_o_gate_diff[t][d];
 
                         //output gates
-                        o_gate_diff[t][d] = dsigmoid(net_o[t][d]) * h_gate_diff[t][d] * tanh(c_t[t][d]);
+                        o_gate_diff[t][d] = dsigmoid(net_o[t][d] + bias_o[d]) * h_gate_diff[t][d] * tanh(c_t[t][d]);
                         //cell state
                         c_state_diff[t][d] = gate_o[t][d] * dtanh(c_t[t][d]) * h_gate_diff[t][d] +  c_weight_o[d]*o_gate_diff[t][d] ;
                         //candidate cell state
                         g_gate_diff[t][d] = gate_i[t][d] * dtanh(state_g[t][d]) * c_state_diff[t][d];
                         //forget gate
-                        f_gate_diff[t][d] = dsigmoid(net_f[t][d]) * c_t[t-1][d] * c_state_diff[t][d];  //公式没有错误。。。
+                        f_gate_diff[t][d] = dsigmoid(net_f[t][d] + bias_f[d]) * c_t[t-1][d] * c_state_diff[t][d];  //公式没有错误。。。
                         //input gate
-                        i_gate_diff[t][d] = dsigmoid(net_i[t][d]) * c_state_diff[t][d] * state_g[t][d]; // input 有一个错误，dsigmoid应为net_i
+                        i_gate_diff[t][d] = dsigmoid(net_i[t][d] + bias_i[d]) * c_state_diff[t][d] * state_g[t][d]; // input 有一个错误，dsigmoid应为net_i
 
 
 
@@ -677,15 +724,16 @@ int main()
                             h_g_gate_diff[t][d] += g_gate_diff[t+1][hi] * h_weight_g[d][hi];
                             h_o_gate_diff[t][d] += o_gate_diff[t+1][hi] * h_weight_o[d][hi];
 
-                            didh[d][hi] += h_i_gate_diff[t][d];
-                            dfdh[d][hi] += h_f_gate_diff[t][d];
-                            dgdh[d][hi] += h_g_gate_diff[t][d];
-                            dodh[d][hi] += h_g_gate_diff[t][d];
+                            didh[d][hi] += i_gate_diff[t+1][hi] * h_weight_i[d][hi];
+                            dfdh[d][hi] += f_gate_diff[t+1][hi] * h_weight_f[d][hi];
+                            dgdh[d][hi] += g_gate_diff[t+1][hi] * h_weight_g[d][hi];
+                            dodh[d][hi] += o_gate_diff[t+1][hi] * h_weight_o[d][hi];
+
 
                         }
-                        h_gate_diff[t][d] = error[t][d] + h_i_gate_diff[t][d] + h_f_gate_diff[t][d] + h_g_gate_diff[t][d] + h_o_gate_diff[t][d];
+                       h_gate_diff[t][d] = error[t][d] + h_i_gate_diff[t][d] + h_f_gate_diff[t][d] + h_g_gate_diff[t][d] + h_o_gate_diff[t][d];
                         //output gate
-                        o_gate_diff[t][d] = dsigmoid(net_o[t][d]) * h_gate_diff[t][d] * tanh(c_t[t][d]);
+                        o_gate_diff[t][d] = dsigmoid(net_o[t][d] + bias_o[d]) * h_gate_diff[t][d] * tanh(c_t[t][d]);
                         //cell state
                         c_state_diff[t][d] = gate_o[t][d] * dtanh(c_t[t][d]) * h_gate_diff[t][d] + gate_f[t+1][d] * c_state_diff[t+1][d] + c_weight_i[d] * i_gate_diff[t+1][d] + c_weight_f[d] * f_gate_diff[t+1][d] + c_weight_o[d] * o_gate_diff[t][d];
                         //candidate cell state
@@ -697,10 +745,10 @@ int main()
                        }
                        else
                        {
-                           f_gate_diff[t][d] = dsigmoid(net_f[t][d]) * c_t[t-1][d] * c_state_diff[t][d];
+                           f_gate_diff[t][d] = dsigmoid(net_f[t][d] + bias_f[d]) * c_t[t-1][d] * c_state_diff[t][d];
                        }
                         //input gate
-                        i_gate_diff[t][d] = dsigmoid(net_i[t][d]) * c_state_diff[t][d] * state_g[t][d];
+                        i_gate_diff[t][d] = dsigmoid(net_i[t][d] + bias_i[d]) * c_state_diff[t][d] * state_g[t][d];
 
 
                     }
@@ -736,9 +784,10 @@ int main()
                         dzdh[k][d] += gradient_O_h[t][k] * h_t[t][d];
                         dzdb[k] += gradient_O_h[t][k];
 
-			 //cout << d << "hidden units: " << " dzdb[k] " << dzdb[k] <<endl;
+			//cout << k << " hidden units: " << " dzdb[k] " << dzdb[k] << " "
+			//     << "dzdh[k][d] "	<< dzdh[k][d] << endl;
                     }
-		   
+
 
                 }
 
@@ -799,26 +848,76 @@ int main()
 
                 batch_count = 0;
 
+	        //use momentum
+		for(int d = 0; d < H_; ++d)
+		{
+
+			didc[d] = pre_didc[d] * momentum - (1/batch_size) * lr * didc[d];
+		        dfdc[d] = pre_dfdc[d] * momentum - (1/batch_size) * lr * dfdc[d];
+		        dodc[d] = pre_dodc[d] * momentum - (1/batch_size) * lr * dodc[d];
+
+			didb[d] = pre_didb[d] * momentum - (1/batch_size) * lr * didb[d];
+                        dfdb[d] = pre_dfdb[d] * momentum - (1/batch_size) * lr * dfdb[d];
+                        dgdb[d] = pre_dgdb[d] * momentum - (1/batch_size) * lr * dgdb[d];
+                        dodb[d] = pre_dodb[d] * momentum - (1/batch_size) * lr * dodb[d];
+    			//cout << "didb: " << didb[d] << " "
+			//     << "dfdb: " << dfdb[d] << " "
+			//     << "dgdb: " << dgdb[d] << " "
+			//     << "dodb: " << dodb[d] << endl;
+
+		        for(int i = 0; i < I_; ++i)
+			{
+				didx[d][i] = pre_didx[d][i] * momentum - (1/batch_size) * lr * didx[d][i];
+                              	dfdx[d][i] = pre_dfdx[d][i] * momentum - (1/batch_size) * lr * dfdx[d][i];
+                              	dgdx[d][i] = pre_dgdx[d][i] * momentum - (1/batch_size) * lr * dgdx[d][i];
+				dodx[d][i] = pre_dodx[d][i] * momentum - (1/batch_size) * lr * dodx[d][i];
+			}
+
+		        for(int h = 0; h<H_; ++h)
+		        {
+		                didh[d][h] = pre_didh[d][h] * momentum - (1/batch_size) * lr * didh[d][h];
+		                dfdh[d][h] = pre_dfdh[d][h] * momentum - (1/batch_size) * lr * dfdh[d][h];
+		                dgdh[d][h] = pre_dgdh[d][h] * momentum - (1/batch_size) * lr * dgdh[d][h];
+		                dodh[d][h] = pre_dodh[d][h] * momentum - (1/batch_size) * lr * dodh[d][h];
+
+		        }
+
+			 for(int k = 0; k<K_; ++k)
+                        {
+                            dzdh[k][d] = pre_dzdh[k][d] * momentum - (1/batch_size) * lr * dzdh[k][d];
+
+                        }
+
+
+
+
+		}
+
+		for(int k =0; k < K_; ++k)  dzdb[k] = pre_dzdb[k] * momentum - (1/batch_size) * lr * dzdb[k];
+		// end momentum
+
+
                 // cout << n << "sample:" << " " <<endl ;
                 for(int d = 0; d < H_; ++d)  //problem is here(core dumped)
                 {
                     // cout << t << "steps:" << " " <<endl ;
 
 
-                        c_weight_i[d] = c_weight_i[d] - lr * (1/batch_size) * didc[d];
-		        c_weight_f[d] = c_weight_f[d] - lr * (1/batch_size) * dfdc[d];
-		        c_weight_o[d] = c_weight_o[d] - lr * (1/batch_size) * dodc[d];
+                        c_weight_i[d] += didc[d] - L2norm * c_weight_i[d];
+                        c_weight_f[d] += dfdc[d] - L2norm * c_weight_f[d];
+                        c_weight_o[d] += dodc[d] - L2norm * c_weight_o[d];
 
                         //if(n == 62) cout << "n  in update "  << endl;
                         // if(n == 63) cout << "n  in update  the problem"  << endl;
 
                         for(int i = 0; i < I_; ++i)
                         {
-                              weight_i[d][i] = weight_i[d][i] - lr * (1/batch_size) * didx[d][i];
-                              weight_f[d][i] = weight_f[d][i] - lr * (1/batch_size) * dfdx[d][i];
-                              weight_g[d][i] = weight_g[d][i] - lr * (1/batch_size) * dgdx[d][i];
-                              weight_o[d][i] = weight_o[d][i] - lr * (1/batch_size) * dodx[d][i];
+                              weight_i[d][i] += didx[d][i] - L2norm * weight_i[d][i];
+                              weight_f[d][i] += dfdx[d][i] - L2norm * weight_f[d][i];
+                              weight_g[d][i] += dgdx[d][i] - L2norm * weight_g[d][i];
+                              weight_o[d][i] += dodx[d][i] - L2norm * weight_o[d][i];
 
+			      //cout << "didx: " << didx[d][i] << endl;
                         }
                         //update weights of hidden to hidden
 
@@ -829,10 +928,10 @@ int main()
 
                             for(int h = 0; h<H_; ++h)
                             {
-                                h_weight_i[d][h] = h_weight_i[d][h] - lr * (1/batch_size) * didh[d][h];
-                                h_weight_f[d][h] = h_weight_f[d][h] - lr * (1/batch_size) * dfdh[d][h];
-                                h_weight_g[d][h] = h_weight_g[d][h] - lr * (1/batch_size) * dgdh[d][h];
-                                h_weight_o[d][h] = h_weight_o[d][h] - lr * (1/batch_size) * dodh[d][h];
+                                h_weight_i[d][h] += didh[d][h] - L2norm * h_weight_i[d][h];
+                                h_weight_f[d][h] += dfdh[d][h] - L2norm * h_weight_f[d][h];
+                                h_weight_g[d][h] += dgdh[d][h] - L2norm * h_weight_g[d][h];
+                                h_weight_o[d][h] += dodh[d][h] - L2norm * h_weight_o[d][h];
 
                                 //cout << "h_weight_i:" << " " << h_weight_i[d][h] << " "
                                 //<< "h_weight_f:" << " " << h_weight_f[d][h] << " "
@@ -845,22 +944,22 @@ int main()
                         //hidden to output weights update error
                         for(int k = 0; k<K_; ++k)
                         {
-                            h_z_weight[k][d] = h_z_weight[k][d] - lr * (1/batch_size) * dzdh[k][d];   // update equation is one of the error
+                            h_z_weight[k][d] += dzdh[k][d] - L2norm * h_z_weight[k][d];   // update equation is one of the error
                             //cout << "h_z_weight:" << " " << h_z_weight[k][d] << endl;
                         }
 
 
                        // bias of hidden to output
-                        bias_i[d] = bias_i[d] - lr * (1/batch_size) * didb[d];
-                        bias_f[d] = bias_f[d] - lr * (1/batch_size) * dfdb[d];
-                        bias_g[d] = bias_g[d] - lr * (1/batch_size) * dgdb[d];
-                        bias_o[d] = bias_o[d] - lr * (1/batch_size) * dodb[d];
+                        bias_i[d] = bias_i[d] + didb[d];
+                        bias_f[d] = bias_f[d] + dfdb[d];
+                        bias_g[d] = bias_g[d] + dgdb[d];
+                        bias_o[d] = bias_o[d] + dodb[d];
 
                        // test predict accuary every batch
 
                   }
 
-		  for(int k =0; k < K_; ++k)  bias_z[k] = bias_z[k] - lr * (1/batch_size) * dzdb[k]; //update bias_z
+		  //for(int k =0; k < K_; ++k)  bias_z[k] = bias_z[k] + dzdb[k]; //update bias_z
 
 
 
@@ -883,10 +982,10 @@ int main()
                                 // compute like MLP
                                 for(int i = 0; i < I_; ++i)
                                 {
-                                    net_i[t][d] = weight_i[d][i] * x_test[sample * T_ + t][i];
-                                    net_f[t][d] = weight_f[d][i] * x_test[sample * T_ + t][i];
-                                    net_g[t][d] = weight_g[d][i] * x_test[sample * T_ + t][i];
-                                    net_o[t][d] = weight_o[d][i] * x_test[sample * T_ + t][i];
+                                    net_i[t][d] += weight_i[d][i] * x_test[sample * T_ + t][i];
+                                    net_f[t][d] += weight_f[d][i] * x_test[sample * T_ + t][i];
+                                    net_g[t][d] += weight_g[d][i] * x_test[sample * T_ + t][i];
+                                    net_o[t][d] += weight_o[d][i] * x_test[sample * T_ + t][i];
                                 // test this block of code, x_input and bias are ok, weight_update is the problem
                                 }
                                 //sum the h(t-1) state;
@@ -960,9 +1059,9 @@ int main()
                             {
 
                                 softmax_o[t][f] = *test_ip;
-                                sum += softmax_o[t][f];
+                                //sum += softmax_o[t][f];
                                 //std::cout << "the probability of test " << f << " output units "
-				//	  << "label: " << y_test[sample] << " "
+                                //	  << "label: " << y_test[sample] << " "
                                 //          << softmax_o[t][f] << std::endl;
                                 test_ip++;
                                 //std::cout << ip << std::endl;
@@ -986,7 +1085,7 @@ int main()
                         double p_out_max = 0;
                         double p_out[T_][K_];
                         int y_predict = 0;
-
+			//int y_predict2 = 0;
                         for(int i = 0; i<K_; ++i)
                         {
                             for(int t = 0; t<T_; ++t)
@@ -1005,6 +1104,7 @@ int main()
                                 {
                                     p_out_max = p_out[frame][out];
 
+				    //y_predict2 = y_predict;
                                     y_predict = out;
 
                                 }
@@ -1060,6 +1160,7 @@ int main()
                  }
 
                     cout << "test_accuary :" << test_accuary << endl;
+		    
 
                 }
 
@@ -1101,6 +1202,43 @@ int main()
 
                  }
 
+                  for(int d = 0; d < H_; ++d)
+                 {
+
+                     pre_didc[d] = didc[d] ;
+                     pre_dfdc[d] = dfdc[d];
+                     pre_dodc[d] = dodc[d];
+
+                     pre_didb[d] = didb[d];
+                     pre_dfdb[d] = dfdb[d];
+                     pre_dgdb[d] = dgdb[d];
+                     pre_dodb[d] = dodb[d];
+
+
+                     for(int i =0; i < I_; ++i)
+                     {
+                         pre_didx[d][i] = didx[d][i];
+                         pre_dfdx[d][i] = dfdx[d][i];
+                         pre_dgdx[d][i] = dgdx[d][i];
+                         pre_dodx[d][i] = dodx[d][i];
+                     }
+                     for(int j = 0; j < H_; ++j)
+                     {
+                         pre_didh[d][j] = didh[d][j];
+                         pre_dfdh[d][j] = dfdh[d][j];
+                         pre_dgdh[d][j] = dgdh[d][j];
+                         pre_dodh[d][j] = dodh[d][j];
+                     }
+                     for(int k = 0; k<K_; ++k)
+                     {
+                         pre_dzdh[k][d] = dzdh[k][d];
+                         pre_dzdb[k] = dzdb[k];//
+                     }
+
+                 }
+
+
+                 
                  for(int d = 0; d < H_; ++d)
                  {
 
@@ -1137,7 +1275,7 @@ int main()
                      }
 
                  }
-
+                 
 
              }
                 //clear end
